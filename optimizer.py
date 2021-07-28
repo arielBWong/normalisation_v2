@@ -4,18 +4,28 @@ import pygmo as pg
 from collections import Sequence
 from itertools import repeat
 from surrogate_problems import branin
-from pymop import ZDT1
+from pymop import ZDT1, ZDT2, ZDT3,  DTLZ1, DTLZ2
 import matplotlib.pyplot as plt
-from visualisation_collection import process_visualisation2D
+from visualisation_collection import process_visualisation2D, process_visualisation3D
+from copy import deepcopy
+
+
 
 def create_children(pop, dim, pop_size, cp, mp, eta):
-    # children is generated with DE operator and polynomial mutation
-
+    '''
+    This reproduce function use DE operator and polynormial mutation operator
+    :param pop: normlaised x population
+    :param dim:  x dimensions
+    :param pop_size: how many child to generated
+    :param cp: crossover rate
+    :param mp:  mutation rate
+    :param eta:  polynormial mutation index
+    :return:  child population of size pop_size
+    '''
     # (1) prepare parents index list for DE parents
     parents_id = np.zeros((pop_size, 3))
     parents_id[:, 0] = np.arange(pop_size)
     tmp_child = []
-
 
     for i in range(pop_size):
         remaining_ids = np.setdiff1d(np.arange(pop_size), np.array(parents_id[i, 0]))
@@ -45,7 +55,6 @@ def create_children(pop, dim, pop_size, cp, mp, eta):
 
 def de_operator(parents_id, popx, cp, mp, eta, dim):
     '''
-
     :param parents_id:  row rector, indicating parents id in x population
     :param popx:  current x population
     :param cp:  crossover rate
@@ -57,9 +66,10 @@ def de_operator(parents_id, popx, cp, mp, eta, dim):
     crossover_site = np.random.rand(1, dim)
     crossover_site = (crossover_site < cp)
 
-    offspring = np.atleast_2d(popx[int(parents_id[0]), :])
-    p2 = np.atleast_2d(popx[int(parents_id[1]), :])
-    p3 = np.atleast_2d(popx[int(parents_id[2]), :])
+    # deepcopy is important or else error will generate
+    offspring = deepcopy(np.atleast_2d(popx[int(parents_id[0]), :]))
+    p2 = deepcopy(np.atleast_2d(popx[int(parents_id[1]), :]))
+    p3 = deepcopy(np.atleast_2d(popx[int(parents_id[2]), :]))
 
     # DE crossover
     offspring[crossover_site] = offspring[crossover_site] + cp * (p2[crossover_site] - p3[crossover_site])
@@ -96,11 +106,8 @@ def mutPolynomialBounded(individual, eta, low, up, indpb):
     elif len(up) < size:
         raise IndexError("up must be at least the size of individual: %d < %d" % (len(up), size))
 
-    # for i, xl, xu in zip(xrange(size), low, up):
     for i, xl, xu in zip(range(size), low, up):
-        # select_rn = random.random()
-        # select_rn = np.random.random()
-        # print(select_rn)
+
         if np.random.random() <= indpb:
             x = individual[i]
             delta_1 = (x - xl) / (xu - xl)
@@ -117,14 +124,22 @@ def mutPolynomialBounded(individual, eta, low, up, indpb):
                 val = 2.0 * (1.0 - rand) + 2.0 * (rand - 0.5) * xy ** (eta + 1)
                 delta_q = 1.0 - val ** mut_pow
 
+            # boundary check
             x = x + delta_q * (xu - xl)
             x = min(max(x, xl), xu)
             individual[i] = x
+
+        else:
+            # boundary check
+            x = individual[i]
+            x = min(max(x, xl), xu)
+            individual[i] = x
+
     return individual
 
 
-def sort_population(popsize,nobj,ncon,infeasible,feasible,all_cv,all_f):
-    l2=[]
+def sort_population(popsize,nobj,ncon,infeasible, feasible, all_cv,all_f):
+    l2 =[]
     l1=[]
     sl=[]
     ff=[]
@@ -153,7 +168,22 @@ def sort_population(popsize,nobj,ncon,infeasible,feasible,all_cv,all_f):
 
 
 def optimizer(problem, nobj, ncon, bounds, mut, crossp, popsize, popgen, visual,  **kwargs):
+    '''
+    This is a general EA optimizer
+    :param problem (class instance): problem to be optimized, defined with pymop problem class definition
+    :param nobj (int): number of objective
+    :param ncon (int): number of constraints
+    :param bounds (list): x bounds
+    :param mut (float): mutation probability
+    :param crossp (float): crossover probability
+    :param popsize (int): population size
+    :param popgen (int): generation size
+    :param visual (binary): whether to plot process
+    :param kwargs:
+    :return:
+    '''
 
+    # initialization and settings
     if visual is True:
         if nobj < 3:
             print('2d plot')
@@ -162,65 +192,54 @@ def optimizer(problem, nobj, ncon, bounds, mut, crossp, popsize, popgen, visual,
         elif nobj == 3:
             print('3d plot')
             plothandle = eval('process_visualisation3D')
+            ax = plt.axes(projection='3d')
         else:
-            print('no plot')
-
+            print('higher than 3D, no plot')
+    if 'ranking_scheme' in kwargs.keys():
+        sorting = eval('ranking_scheme')
+    else:
+        sorting = eval('sort_population')
 
 
     dimensions = len(bounds)
-    pop_g = []
-    archive_g = []
-    all_cv = []
-    pop_cv = []
-    a = np.linspace(0, 2* popsize - 1, 2 * popsize, dtype=int)
-
-    all_cv = np.zeros((2 * popsize, 1))
-    all_g = np.zeros((2 * popsize, ncon))
-    pop_g = np.zeros((popsize, ncon))
-    pop_cv = np.zeros((2 * popsize, 1))
-    child_g = np.zeros((popsize, ncon))
-    archive_g = pop_g
-    all_x = np.zeros((2 * popsize, dimensions))
-    all_f = np.zeros((2 * popsize, nobj))
-    pop_f = np.zeros((popsize, nobj))
-    child_f = np.zeros((popsize, nobj))
+    a = np.linspace(0, 2 * popsize - 1, 2 * popsize, dtype=int)
     pop = np.random.rand(popsize, dimensions)
     min_b, max_b = np.asarray(bounds).T
     diff = np.fabs(min_b - max_b)
     pop_x = min_b + pop * diff
     archive_x = pop
+
+    # initial population
+    if ncon != 0:
+        pop_f, pop_g = problem.evaluate(pop_x, return_values_of=["F", "G"], **kwargs)
+
+    if ncon == 0:
+        pop_f = problem.evaluate(pop_x, return_values_of=["F"], **kwargs)
+        pop_g = []
+
+    # archive initialization
+    archive_g = pop_g
     archive_f = pop_f
-    for ind in range(popsize):
-        if ncon != 0:
-            pop_f[ind, :], pop_g[ind, :] = problem.evaluate(pop_x[ind, :], return_values_of=["F", "G"], **kwargs)
-            tmp = pop_g
-            tmp[tmp <= 0] = 0
-            pop_cv = tmp.sum(axis=1)
 
-        if ncon == 0:
-            # print('initialization loglikelihood check send in %d th theta: %0.4f ' % (ind, pop_x[ind, :]))
-            pop_f[ind, :] = problem.evaluate(pop_x[ind, :], return_values_of=["F"], **kwargs)
-
-    # Over the generations
+    # evolution
     for i in range(popgen):
         if visual is True:
             plothandle(ax, problem, pop_f)
 
-
+        # generate children
         child_x = create_children(pop, dimensions, popsize, crossp, mut, 30)
 
         # Evaluating the offspring
-        for ind in range(popsize):
-            trial_denorm = min_b + child_x[ind, :] * diff
-            if ncon != 0:
-                child_f[ind, :], child_g[ind, :] = problem.evaluate(trial_denorm, return_values_of=["F", "G"], **kwargs)
-            if ncon == 0:
-                # print('over generation %d send in %d th theta: ' % (i, ind))
-                child_f[ind, :] = problem.evaluate(trial_denorm, return_values_of=["F"], **kwargs)
+        trial_denorm = min_b + child_x * diff
+        if ncon != 0:
+            child_f, child_g = problem.evaluate(trial_denorm, return_values_of=["F", "G"], **kwargs)
+        if ncon == 0:
+            child_f = problem.evaluate(trial_denorm, return_values_of=["F"], **kwargs)
 
-        # Parents and offspring
+        # Parents and offspring 2N size population for sorting
         all_x = np.append(pop, child_x, axis=0)
         all_f = np.append(pop_f, child_f, axis=0)
+
         if ncon != 0:
             all_g = np.append(pop_g, child_g, axis=0)
             all_g[all_g <= 0] = 0
@@ -230,16 +249,16 @@ def optimizer(problem, nobj, ncon, bounds, mut, crossp, popsize, popgen, visual,
         if ncon == 0:
             feasible = a
             infeasible = []
+            all_cv = []
 
         feasible = np.asarray(feasible)
         feasible = feasible.flatten()
+
         # Selecting the parents for the next generation
-        selected = sort_population(popsize, nobj, ncon, infeasible, feasible, all_cv, all_f)
+        selected = sorting(popsize, nobj, ncon, infeasible, feasible, all_cv, all_f)
 
         pop = all_x[selected, :]
         pop_f = all_f[selected, :]
-
-        # insert a crossvalidation
         if ncon != 0:
             pop_g = all_g[selected, :]
 
@@ -256,8 +275,8 @@ def optimizer(problem, nobj, ncon, bounds, mut, crossp, popsize, popgen, visual,
 
 
 if __name__ == "__main__":
-
-
-    problem = ZDT1(n_var=2)
+    np.seterr(over='raise')
+    np.random.seed(1)
+    problem = DTLZ1(n_var=7, n_obj=3)
     bounds = np.vstack((problem.xl, problem.xu)).T.tolist()
-    pop_x, pop_f, pop_g, archive_x, archive_f, archive_g = optimizer(problem, 2, 0, bounds, 0.2, 0.8, 100, 100, visual=True)
+    pop_x, pop_f, pop_g, archive_x, archive_f, archive_g = optimizer(problem, 3, 0, bounds, 0.2, 0.8, 100, 100, visual=True)
