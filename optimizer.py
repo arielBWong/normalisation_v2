@@ -167,7 +167,7 @@ def sort_population(popsize,nobj,ncon,infeasible, feasible, all_cv,all_f):
     return selected
 
 
-def optimizer(problem, nobj, ncon, bounds, mut, crossp, popsize, popgen, visual,  **kwargs):
+def optimizer(problem, nobj, ncon, mut, crossp, popsize, popgen, visual=False,  **kwargs):
     '''
     This is a general EA optimizer
     :param problem (class instance): problem to be optimized, defined with pymop problem class definition
@@ -201,11 +201,11 @@ def optimizer(problem, nobj, ncon, bounds, mut, crossp, popsize, popgen, visual,
         sorting = eval('sort_population')
 
 
-    dimensions = len(bounds)
+    dimensions = problem.n_var
     a = np.linspace(0, 2 * popsize - 1, 2 * popsize, dtype=int)
     pop = np.random.rand(popsize, dimensions)
-    min_b, max_b = np.asarray(bounds).T
-    diff = np.fabs(min_b - max_b)
+    min_b = problem.xl
+    diff = np.fabs(problem.xu - problem.xl)
     pop_x = min_b + pop * diff
     archive_x = pop
 
@@ -227,7 +227,7 @@ def optimizer(problem, nobj, ncon, bounds, mut, crossp, popsize, popgen, visual,
             plothandle(ax, problem, pop_f)
 
         # generate children
-        child_x = create_children(pop, dimensions, popsize, crossp, mut, 30)
+        child_x = create_children(pop,  problem.n_var, popsize, crossp, mut, 30)
 
         # Evaluating the offspring
         trial_denorm = min_b + child_x * diff
@@ -279,4 +279,4 @@ if __name__ == "__main__":
     np.random.seed(1)
     problem = DTLZ1(n_var=7, n_obj=3)
     bounds = np.vstack((problem.xl, problem.xu)).T.tolist()
-    pop_x, pop_f, pop_g, archive_x, archive_f, archive_g = optimizer(problem, 3, 0, bounds, 0.2, 0.8, 100, 100, visual=True)
+    pop_x, pop_f, pop_g, archive_x, archive_f, archive_g = optimizer(problem, 3, 0,  0.2, 0.8, 100, 100, visual=True)
