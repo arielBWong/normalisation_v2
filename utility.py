@@ -3,6 +3,9 @@ import pyDOE
 from krige_dace import krige_dace
 import pygmo as pg
 from sklearn.utils.validation import check_array
+from sklearn.metrics import silhouette_samples, silhouette_score
+from sklearn import cluster
+
 
 def init_solutions(number_of_initial_samples, target_problem):
     '''
@@ -64,6 +67,7 @@ def update_archive(x, y, c, newx, newy, newc):
     y = np.vstack((y, newy))
     return x, y, c
 
+
 def get_ndfront(x, y):
     ndf, dl, dc, ndr = pg.fast_non_dominated_sorting(y)
     ndf = list(ndf)
@@ -71,7 +75,6 @@ def get_ndfront(x, y):
     nd_y = y[ndf_index, :]
     nd_x = x[ndf_index, :]
     return nd_x, nd_y
-
 
 
 def normalization_with_nd(y):
@@ -108,3 +111,96 @@ def normalization_with_nd(y):
                 break
     norm_y = (y - min_nd_by_feature) / (max_nd_by_feature - min_nd_by_feature)
     return norm_y
+
+
+def denormalization_with_nd(y_norm, y):
+    y = check_array(y)
+    ndf, dl, dc, ndr = pg.fast_non_dominated_sorting(y)
+    ndf = list(ndf)
+    ndf_size = len(ndf)
+    # extract nd for normalization
+    if len(ndf[0]) > 1:
+        ndf_extend = ndf[0]
+    else:
+        ndf_extend = np.append(ndf[0], ndf[1])
+
+    nd_front = y[ndf_extend, :]
+    # normalization boundary
+    min_nd_by_feature = np.amin(nd_front, axis=0)
+    max_nd_by_feature = np.amax(nd_front, axis=0)
+    # rule out exception nadir and ideal are too close
+    # add more fronts to nd front
+    if np.any(max_nd_by_feature - min_nd_by_feature < 1e-5):
+        print('nd front aligned problem, cannot form proper normalisation bounds, expanding nd front')
+        ndf_index = ndf[0]
+        for k in np.arange(1, ndf_size):
+            ndf_index = np.append(ndf_index, ndf[k])
+            nd_front = y[ndf_index, :]
+            min_nd_by_feature = np.amin(nd_front, axis=0)
+            max_nd_by_feature = np.amax(nd_front, axis=0)
+            if np.any(max_nd_by_feature - min_nd_by_feature < 1e-5):
+                continue
+            else:
+                break
+
+    y_denorm = y_norm * (max_nd_by_feature - min_nd_by_feature) + min_nd_by_feature
+    return y_denorm
+
+
+def Silhouette(nd, ndx, nc, **kwargs):
+    sil_score = []
+    nd_size = nd.shape[0]
+    clusters = np.arange(2, nc+1)
+
+
+    for i in clusters:
+        labels = cluster.KMeans(n_clusters=i).fit_predict(nd)
+        s = silhouette_score(nd, labels)
+        sil_score = np.append(sil_score, s)
+    k = np.argsort(sil_score)
+    best_cluster = clusters[k[-1]]  # max sort value
+
+
+    labels = cluster.KMeans(n_clusters=best_cluster).fit_predict(nd)
+
+    # if best_cluster == 3:
+   #  plot_sil(labels, nd, ndx, best_cluster,  **kwargs)
+    a = 0
+
+    out_x = []
+    out_f = []
+    n_var = ndx.shape[1]
+    f_var = nd.shape[1]
+
+
+
+    for k in range(best_cluster):
+        idk = np.where(labels == k)
+
+        # population is  sorted, so select the first one
+        x = ndx[idk[0][0], :]
+        f = nd[idk[0][0], :]
+        out_x = np.append(out_x, x)
+        out_f = np.append(out_f, f)
+
+    out_x = np.atleast_2d(out_x).reshape(-1, n_var)
+    out_f = np.atleast_2d(out_f).reshape(-1, f_var)
+    return out_x, out_f
+
+
+def close_adjustment(nd_front):
+
+    # check if any of current nd front got too close to each other
+    # align them together
+    nd_front = check_array(nd_front)
+    n_obj = nd_front.shape[1]
+    n_nd = nd_front.shape[0]
+
+    for i in range(0, n_obj):
+        check_closeness = nd_front[:, i]
+        for j in range(n_nd):
+            for k in range(j + 1, n_nd):
+                if abs(check_closeness[j] - check_closeness[k]) < 1e-5:
+                    smaller = min([check_closeness[j], check_closeness[k]])
+                    check_closeness[j] = check_closeness[k] = smaller
+    return nd_front
