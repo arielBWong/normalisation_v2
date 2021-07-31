@@ -1,49 +1,59 @@
 import numpy as np
-from surrogate_problems import infill_problem
-import utility
+from surrogate_problems import infill_problem, DTLZs
+from utility import model_building, init_solutions, get_ndfront, update_archive, normalization_with_nd, denormalization_with_nd
 import surrogate_assisted
 import optimizer
 import os
 from joblib import dump, load
 
-def normalisation_adjustment(seed, str_problem, max_eval, str_normscheme, corner_search):
-    # steps
+def normalisation_adjustment(seed, str_problem, max_eval, str_normscheme, corner_search, verbose=True):
+    '''
+    This is the main steps of normalization
+    :param seed:
+    :param str_problem:  problem to be solved
+    :param max_eval: max number of function evaluation
+    :param str_normscheme:  which normalization scheme to use
+    :param corner_search: whether to apply corner search
+    :return:
+    '''
 
     # setting up
     np.random.seed(seed)
     target_problem = eval(str_problem)
-    print('Problem %s, seed %d' % (target_problem.name(), seed))
+    print('Problem %s, seed %d, normalization method %s switch %d' % (target_problem.name(), seed, str_normscheme, corner_search))
     hv_ref = [1.1] * target_problem.n_obj
     hvinfill_problem = infill_problem.hv_infill(n_var=target_problem.n_var, n_obj=1, n_constr=0, upper_bound=target_problem.xu, lower_bound=target_problem.xl,
                                name=target_problem.name())
     num_init = int(max_eval/2)
 
-    trgx, trgy, trgc = utility.init_solutions(num_init, target_problem)
+    trgx, trgy, trgc = init_solutions(num_init, target_problem)
     norm_scheme = eval(str_normscheme)
     denorm_scheme = eval('de'+str_normscheme)
 
+    # record for silhouette and selective evaluation
     activation_count = 0
     silcount = 0
     activation_record = dict()
     sil_record = dict()
 
+    # if corner search start with a corner search hoping to have adjustment first
     if corner_search:
         before_archivesize = trgx.shape[0]
         sil_param = {'sil_record': sil_record, 'silcount': silcount}
-        trgx, trgy, sil_record, silcount = surrogate_assisted.corner_adjustment(corner_search, trgx, trgy, trgc, norm_scheme, target_problem, **sil_param)
+        trgx, trgy, sil_record, silcount = surrogate_assisted.corner_adjustment(corner_search, trgx, trgy, trgc, norm_scheme, target_problem, hv_ref, **sil_param)
         after_archivesize = trgx.shape[0]
         activation_record = activation_saveprocess(before_archivesize, after_archivesize, activation_record,
                                                    activation_count)
         activation_count = activation_count + 1
 
-
     # head into infill
     while trgy.shape[0] < max_eval:
-
+        if verbose:
+            print('Evaluation: ' + str(trgy.shape[0]))
         # create surrogate model & set up evaluation
         trgy_norm = norm_scheme(trgy)
-        krg, krgc = utility.model_building(trgx, trgy_norm, trgc)
-        _, ndy_norm = utility.get_ndfront(trgx, trgy_norm)
+        krg, krgc = model_building(trgx, trgy_norm, trgc)
+        _, ndy_norm = get_ndfront(trgx, trgy_norm)
         hvinfill_problem.evaluation_prepare(krg, ndy_norm, hv_ref)
 
         pop_x, _, _, _, _, _ = optimizer.optimizer(hvinfill_problem, nobj=1, ncon=0, mut=0.2,
@@ -56,7 +66,7 @@ def normalisation_adjustment(seed, str_problem, max_eval, str_normscheme, corner
         else:
             nexty = target_problem.evaluate(nextx, return_values_of=['F'])
             nextc = None
-        trgx, trgy, trgc = utility.update_archive(trgx, trgy, trgc, nextx, nexty, nextc)
+        trgx, trgy, trgc = update_archive(trgx, trgy, trgc, nextx, nexty, nextc)
 
         if trgy.shape[0] >= max_eval:
             trgx = trgx[0:max_eval, :]
@@ -65,8 +75,10 @@ def normalisation_adjustment(seed, str_problem, max_eval, str_normscheme, corner
 
         if corner_search & surrogate_assisted.confirmsearch(nexty, trgy[0:-1, :]):
             before_archivesize = trgx.shape[0]
-            trgx, trgy, cne, silinfo = surrogate_assisted.corner_adjustment(corner_search, trgx, trgy, trgc,
-                                                                            norm_scheme, target_problem)
+            sil_param = {'sil_record': sil_record, 'silcount': silcount}
+            trgx, trgy, sil_record, silcount = surrogate_assisted.corner_adjustment(corner_search, trgx, trgy, trgc,
+                                                                                    norm_scheme, target_problem, hv_ref,
+                                                                                    **sil_param)
             after_archivesize = trgx.shape[0]
             activation_record = activation_saveprocess(before_archivesize, after_archivesize, activation_record,
                                                        activation_count)
@@ -94,6 +106,7 @@ def save_results(seed, trgy, problem, str_method, activation_record, sil_record)
     # second level folder
     f = problem.name() + "_" + str_method
     folder2 = os.path.join(folder1, f)
+    make_dir(folder2)
 
     # save f and activation
 
@@ -113,6 +126,14 @@ def activation_saveprocess(before_archivesize, after_archivesize, activation_rec
     activation_record[str(activation_count)] = newsolutions
     return activation_record
 
+def run_experiments():
+    normalisation_adjustment(1, "DTLZs.DTLZ1(n_var=6, n_obj=3)", 60, "normalization_with_nd", 4)
+
+def
 
 if __name__=="__main__":
     print(0)
+    import cProfile
+    cProfile.run('run_experiments()')
+
+    # seed, str_problem, max_eval, str_normscheme, corner_search

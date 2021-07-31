@@ -4,7 +4,6 @@ import matplotlib.pyplot as plt
 from sklearn.utils.validation import check_array
 
 from surrogate_problems.sur_problem_base import Problem
-from surrogate_assisted import krg_believer
 from pymop import ZDT1
 from visualisation_collection import get_problem_paretofront
 from utility import init_solutions, model_building, update_archive, get_ndfront, normalization_with_nd
@@ -30,7 +29,11 @@ class corner_problem(Problem):
 
 
     def _evaluate(self, x, out, *args, **kwargs):
-        check_array(x)
+        try:
+            check_array(x)
+        except ValueError as e:
+            print(x)
+            print(e)
         f = []
         if self.n_obj > 1:
             for i in range(self.n_obj):

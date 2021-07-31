@@ -79,11 +79,11 @@ def infill_test():
         _, ndf_norm = get_ndfront(trgx, trgy_norm)
         infill_problem.evaluation_prepare(krg, ndf_norm, ref)
 
-        pop_x, pop_f, pop_g, archive_x, archive_f, archive_g = optimizer(infill_problem, nobj=1, ncon=0, mut=0.2,
-                                                                          crossp=0.8, popsize=100, popgen=100, insertx=None)
-        nextx = np.atleast_2d(pop_x[0, :])
+        # pop_x, pop_f, pop_g, archive_x, archive_f, archive_g = optimizer(infill_problem, nobj=1, ncon=0, mut=0.2,
+        #                                                                   crossp=0.8, popsize=100, popgen=100, insertx=None)
+        # nextx = np.atleast_2d(pop_x[0, :])
 
-        # nextx, _, _, _ = optimizer_DE(infill_problem, ncon=0, insertpop=None, NP=100, itermax=100, visflag=False)
+        nextx, _, _, _ = optimizer_DE(infill_problem, ncon=0, insertpop=None, NP=100, itermax=100, visflag=False)
 
         if problem.n_constr != 0:
             nexty, nextc = problem.evaluate(nextx, return_values_of=['F', 'G'])

@@ -8,10 +8,11 @@ from pymop import ZDT1, ZDT2, ZDT3,  DTLZ1, DTLZ2
 import matplotlib.pyplot as plt
 from visualisation_collection import process_visualisation2D, process_visualisation3D
 from copy import deepcopy
+from sklearn.utils.validation import check_array
 
 
 
-def create_children(pop, dim, pop_size, cp, mp, eta):
+def create_childrenMix(pop, dim, pop_size, cp, mp, eta):
     '''
     This reproduce function use DE operator and polynormial mutation operator
     :param pop: normlaised x population
@@ -55,6 +56,7 @@ def create_children(pop, dim, pop_size, cp, mp, eta):
 
 def de_operator(parents_id, popx, cp, mp, eta, dim):
     '''
+
     :param parents_id:  row rector, indicating parents id in x population
     :param popx:  current x population
     :param cp:  crossover rate
@@ -78,9 +80,126 @@ def de_operator(parents_id, popx, cp, mp, eta, dim):
     low = [0] * dim
     up = [1] * dim
     offspring = offspring.flatten()
+    offspring = min(max(list(offspring), low), up)
     offspring = mutPolynomialBounded(offspring, eta, low, up, mp)
 
     return offspring
+
+
+def create_childrenDE(pop, pop_f, dim, pop_size, cp, *args, **kwargs):
+    '''
+    Use DE operator to generate offspring, implementation is based on matrix operation from
+    the DE (differential evolution) algorithm of Rainer Storn (matlab version, reference in reference folder)
+
+    :param pop: population x, normalized into [0, 1], for less parameter passing
+    :param pop_f: population objective (real objectives)
+    :param dim:  x dimension
+    :param pop_size: population size
+    :param cp: crossover rate
+    :param args: no mutation
+    :param kwargs:
+    :return: child population ui
+    '''
+
+    if pop_f.shape[1] > 1:
+        strategy = 7  # multiple objective, no exponential crossover
+        bm = None
+    else:
+        strategy = 6  # single objective /best/1 scheme, no exponenetial crossover
+        bm_id = np.argmin(pop_f)
+        bm = np.tile(pop[bm_id, :], (pop_size,1)) # best solution
+
+    F = 0.8  # DE-stepsize F from interval [0, 2]
+    # rotating index array (size NP)
+    rot = np.arange(0, pop_size)
+    # rotating index array (size D)
+    rotd = np.arange(0, dim)  # (0:1:D-1);
+
+    oldpop_x = pop.copy()  # no need deepcopy wasting of memory
+
+    # index pointer array
+    ind = np.random.permutation(4) + 1
+
+    # shuffle locations of vectors
+    a1 = np.random.permutation(pop_size)
+
+    # rotate indices by ind(1) positions
+    rt = np.remainder(rot + ind[0], pop_size)
+    # rotate vector locations
+    a2 = a1[rt]
+
+    rt = np.remainder(rot + ind[1], pop_size)
+    a3 = a2[rt]
+
+    rt = np.remainder(rot + ind[2], pop_size)
+    a4 = a3[rt]
+
+    rt = np.remainder(rot + ind[3], pop_size)
+    a5 = a4[rt]
+
+    # shuffled population 1
+    pm1 = oldpop_x[a1, :]
+    pm2 = oldpop_x[a2, :]
+    pm3 = oldpop_x[a3, :]
+    pm4 = oldpop_x[a4, :]
+    pm5 = oldpop_x[a5, :]
+
+    # population filled with the best member of the last iteration
+    mui = np.random.rand(pop_size, dim) < cp  # select from new
+    if strategy > 5:
+        st = strategy - 5
+    else:
+        # exponential crossover
+        st = strategy
+        # transpose, collect 1's in each column
+        mui = np.sort(mui, axis=1)
+        mui = mui.T
+        for i in range(pop_size):
+            n = np.floor(np.random.rand() * dim)
+            if n > 0:
+                # determine crossover decision
+                # rotate
+                rtd = np.remainder(rotd + n, dim)
+                mui[:, i] = mui[rtd, i]
+        mui = mui.T
+
+
+
+    # inverse mask to mui
+    # mpo = ~mui same as following one
+    mpo = mui < 0.5  # select from old
+
+    if st == 1:  # DE/best/1
+        # differential variation
+        ui = bm + F * (pm1 - pm2)  # permutate best member population
+        # crossover
+        ui = oldpop_x * mpo + ui * mui  # partially old population, partially new population
+
+    if st == 2:  # DE/rand/1
+        # differential variation
+        ui = pm3 + F * (pm1 - pm2)
+        # crossover
+        ui = oldpop_x * mpo + ui * mui
+    if st == 3:  # DE/rand-to-best/1
+        ui = oldpop_x + F * (bm - oldpop_x) + F * (pm1 - pm2)
+        ui = oldpop_x * mpo + ui * mui
+    if st == 4:  # DE/best/2
+        ui = bm + F * (pm1 - pm2 + pm3 - pm4)
+        ui = oldpop_x * mpo + ui * mui
+    if st == 5:  # DE/rand/2
+        ui = pm5 + F * (pm1 - pm2 + pm3 - pm4)
+        ui = oldpop_x * mpo + ui * mui
+
+    # boundary fix, x is in normalised space
+    ub_mask = ui <= 1.0
+    lb_mask = ui >= 0.0
+    ui = ui * ub_mask * lb_mask + 1.0 * (~ub_mask) + 0.0 * (~lb_mask) # bit operator, but applicable in logical array
+
+    return ui
+
+
+
+
 
 
 def mutPolynomialBounded(individual, eta, low, up, indpb):
@@ -119,10 +238,19 @@ def mutPolynomialBounded(individual, eta, low, up, indpb):
                 xy = 1.0 - delta_1
                 val = 2.0 * rand + (1.0 - 2.0 * rand) * xy ** (eta + 1)
                 delta_q = val ** mut_pow - 1.0
+                try:
+                    check_array(np.atleast_2d(delta_q))
+                except ValueError as e:
+                    print(e)
             else:
                 xy = 1.0 - delta_2
                 val = 2.0 * (1.0 - rand) + 2.0 * (rand - 0.5) * xy ** (eta + 1)
                 delta_q = 1.0 - val ** mut_pow
+                try:
+                    check_array(np.atleast_2d(delta_q))
+                except ValueError as e:
+                    print(e)
+
 
             # boundary check
             x = x + delta_q * (xu - xl)
@@ -139,7 +267,7 @@ def mutPolynomialBounded(individual, eta, low, up, indpb):
 
 
 
-def corner_sort(popsize, nobj, ncon, infeasible, feasible, all_cv, all_f, all_x):
+def corner_sort(popsize, nobj, ncon, infeasible, feasible, all_cv, all_f):
     # return ordered
     l1 = []
     order = []
@@ -248,7 +376,7 @@ def optimizer(problem, nobj, ncon, mut, crossp, popsize, popgen, insertx=None, v
         else:
             print('higher than 3D, no plot')
     if 'ranking_scheme' in kwargs.keys():
-        sorting = eval('ranking_scheme')
+        sorting = eval(kwargs['ranking_scheme'])
     else:
         sorting = eval('sort_population')
 
@@ -260,6 +388,7 @@ def optimizer(problem, nobj, ncon, mut, crossp, popsize, popgen, insertx=None, v
     dimensions = problem.n_var
     a = np.linspace(0, 2 * popsize - 1, 2 * popsize, dtype=int)
     pop = np.random.rand(new_popsize, dimensions)
+    child_x = np.zeros((popsize, dimensions))
     min_b = problem.xl
     diff = np.fabs(problem.xu - problem.xl)
     pop_x = min_b + pop * diff
@@ -290,7 +419,8 @@ def optimizer(problem, nobj, ncon, mut, crossp, popsize, popgen, insertx=None, v
             plothandle(ax, problem, pop_f)
 
         # generate children
-        child_x = create_children(pop,  problem.n_var, popsize, crossp, mut, 30)
+        # child_x = create_children(pop,  problem.n_var, popsize, crossp, mut, 30)
+        child_x = create_childrenDE(pop, pop_f,  problem.n_var, popsize, crossp, mut)
 
         # Evaluating the offspring
         trial_denorm = min_b + child_x * diff

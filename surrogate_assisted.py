@@ -84,11 +84,22 @@ def confirmsearch(nexty, trgy):
         return False
 
 
-def corner_adjustment(corner_var, trgx, trgy, trgc, norm_scheme, target_problem, **kwargs):
+def corner_adjustment(corner_var, trgx, trgy, trgc, norm_scheme, target_problem, hv_ref, **kwargs):
+    '''
+    This function conduct the appointed corner search scheme
+    :param corner_var: (int) specifying which scheme to use
+    :param trgx: archive x
+    :param trgy: archive y
+    :param trgc: archive c
+    :param norm_scheme: normalisation scheme, 'normalization with nd'
+    :param target_problem: problem to be solved
+    :param kwargs: additional variables for record silhouette analysis
+    :return: expanded archive
+    '''
     str_method = method_swtich(corner_var)
     corner_method = eval(str_method)
-    trgx, trgy, silinfo1, silinfo2 = corner_method(trgx, trgy, trgc, norm_scheme, target_problem, **kwargs)
-
+    trgx, trgy, silinfo1, silinfo2 = corner_method(trgx, trgy, trgc, norm_scheme, hv_ref, target_problem, **kwargs)
+    # trgx, trgy, trgc, norm_scheme, hv_ref, target_problem,  **kwargs
     return trgx, trgy, silinfo1, silinfo2
 
 
@@ -100,7 +111,7 @@ def extreme_search(trgx, trgy, trgc, norm_scheme, hv_ref, target_problem,  **kwa
     guide_x = np.atleast_2d(trgx[best_index, :])
 
     # run estimated new best x on each objective
-    x_out1 = check_krg_ideal_points(krg, target_problem.n_val, 0, target_problem.n_obj,
+    x_out1 = check_krg_ideal_points(krg, target_problem.n_var, 0, target_problem.n_obj,
                                     target_problem.xl, target_problem.xu, guide_x, target_problem.name())
 
     trgx, trgy = additional_evaluation(x_out1, trgx, trgy, target_problem)
@@ -120,6 +131,17 @@ def corner_search_all(trgx, trgy, trgc, norm_scheme, hv_ref, target_problem,  **
 
 
 def corner_search_sel(trgx, trgy, trgc, norm_scheme, hv_ref, target_problem,  **kwargs):
+    '''
+    normalization scheme for corner search and selective evaluation
+    :param trgx: archive x
+    :param trgy: archive y
+    :param trgc: archive c
+    :param norm_scheme:  fixed scheme normalization with ND
+    :param hv_ref: [1.1] * n_obj parameter for selective evaluation
+    :param target_problem: true problem
+    :param kwargs: variables for silhouette analysis
+    :return: expanded archive x, f and silhouette records
+    '''
     candx, candf, _, _ = corner_search_prep(trgx, trgy, trgc, norm_scheme, target_problem)
     if candx.shape[0] >= target_problem.n_obj:
         candx = candx[0: target_problem.n_obj, :]
@@ -127,15 +149,28 @@ def corner_search_sel(trgx, trgy, trgc, norm_scheme, hv_ref, target_problem,  **
 
     # selective evaluation
     trgy_norm = norm_scheme(trgy)
+    before_size = trgy.shape[0]
     trgx, trgy = selective_evaluation(candx, candf, hv_ref, trgx, trgy, trgy_norm, target_problem)
+    after_size = trgy.shape[0]
+    print('corner search evaluation size for confirm %d' % int(after_size - before_size))
+
     return trgx, trgy, kwargs['sil_record'], kwargs['silcount']
 
 
 def corner_search_selsil(trgx, trgy, trgc, norm_scheme, hv_ref, target_problem, **kwargs):
-
+    '''
+    corner search plus selective evaluation
+    :param trgx: archive x
+    :param trgy: archive f
+    :param trgc: archive c
+    :param norm_scheme: normalisation_with_nd fixed
+    :param hv_ref: reference point
+    :param target_problem: true problem
+    :param kwargs: silhouette analysis parameters
+    :return: expanded archive x f and silhouette analysis
+    '''
     ndx, ndf, popx, popf = corner_search_prep(trgx, trgy, trgc, norm_scheme, target_problem)
     if ndx.shape[0] > target_problem.n_obj:  # clustering is only for top 2M
-
         x_out, f_out = utility.Silhouette(popf, popx, target_problem.n_obj)
         x_out = np.atleast_2d(x_out).reshape(-1, target_problem.n_var)
     else:
@@ -151,12 +186,24 @@ def corner_search_selsil(trgx, trgy, trgc, norm_scheme, hv_ref, target_problem, 
         silcount = silcount + 1
 
     trgy_norm = norm_scheme(trgy)
+    before_size = trgy.shape[0]
     trgx, trgy = selective_evaluation(x_out, f_out, hv_ref, trgx, trgy, trgy_norm, target_problem)
+    after_size = trgy.shape[0]
+    print('selective evaluation size %d' % int(after_size - before_size))
 
     return trgx, trgy, sil_record, silcount
 
 
 def corner_search_prep(trgx, trgy, trgc, norm_scheme, target_probem):
+    '''
+    common process before corner search, use corner sorting to identify candidate solutions
+    :param trgx: archive x
+    :param trgy: archive f
+    :param trgc: archive c
+    :param norm_scheme: normalization scheme fixed to normalisation with ND
+    :param target_probem: true problem to be solved
+    :return:  nd front of corner sorting based search, and the last population
+    '''
     trgy_norm = norm_scheme(trgy)
     krg, krgc = utility.model_building(trgx, trgy_norm, trgc)
     corner_problem = corner_problems.corner_problem(krg, n_var=target_probem.n_var, n_obj=target_probem.n_obj, upper_bound=target_probem.xu,
@@ -167,10 +214,8 @@ def corner_search_prep(trgx, trgy, trgc, norm_scheme, target_probem):
                                                                      crossp=0.8, popsize=100, popgen=100, insertx=ndx, **opt_param)
 
     last_popf = utility.close_adjustment(last_popf)
-
-
     last_popndx, last_popndf = utility.get_ndfront(last_popx, last_popf)
-    sorted_id = optimizer.corner_sort(last_popndf.shape[0], last_popndf.shape[1], 0, None, None, None, last_popndf, last_popndx)
+    sorted_id = optimizer.corner_sort(last_popndf.shape[0], last_popndf.shape[1], 0, None, None, None, last_popndf)
 
     last_popndx = last_popndx[sorted_id, :]
     last_popndf = last_popndf[sorted_id, :]
@@ -191,6 +236,18 @@ def method_swtich(corner_var):
 
 
 def selective_evaluation(candx, candf, hv_ref, trgx, trgy, trgf_norm, target_problem):
+    '''
+    For proposed corners, which ones should be evaluated
+    only select those non-dominated and out of reference hypercube
+    :param candx: corners x
+    :param candf: corners f (surrogate prediction on normalised space)
+    :param hv_ref: reference point
+    :param trgx: archive x
+    :param trgy: archive f
+    :param trgf_norm: normalized archive f
+    :param target_problem: true problem
+    :return: expanded archive
+    '''
     n = candx.shape[0]
     ndx, ndf_norm = utility.get_ndfront(trgx, trgf_norm)
     for i in range(n):
@@ -251,7 +308,7 @@ def check_krg_ideal_points(krg, n_var, n_constr, n_obj, low, up, guide_x, proble
 
 
         guide = np.atleast_2d(guide_x[k_i, :])
-        _, _, pop_x, pop_f = optimizer.optimizer(problem, problem.n_obj, problem.n_constr, 0.8, 0.2, 100, 100, insertx=guide, visual=False)
+        pop_x, pop_f, _, _, _, _ = optimizer.optimizer(problem, problem.n_obj, problem.n_constr, 0.8, 0.2, 100, 100, insertx=guide, visual=False)
 
         # save the last population for lexicon sort
         last_x_pop = np.append(last_x_pop, pop_x)
