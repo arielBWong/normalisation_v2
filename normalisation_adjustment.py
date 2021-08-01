@@ -5,8 +5,9 @@ import surrogate_assisted
 import optimizer
 import os
 from joblib import dump, load
+import multiprocessing as mp
 
-def normalisation_adjustment(seed, str_problem, max_eval, str_normscheme, corner_search, verbose=True):
+def normalisation_adjustment(seed, str_problem, max_eval, str_normscheme, verbose=True):
     '''
     This is the main steps of normalization
     :param seed:
@@ -16,6 +17,10 @@ def normalisation_adjustment(seed, str_problem, max_eval, str_normscheme, corner
     :param corner_search: whether to apply corner search
     :return:
     '''
+    # decode method
+    items = str_normscheme.split('_')
+    str_normscheme ='_'.join(items[0:-1])
+    corner_search = int(items[-1])
 
     # setting up
     np.random.seed(seed)
@@ -127,13 +132,37 @@ def activation_saveprocess(before_archivesize, after_archivesize, activation_rec
     return activation_record
 
 def run_experiments():
-    normalisation_adjustment(1, "DTLZs.DTLZ1(n_var=6, n_obj=3)", 60, "normalization_with_nd", 4)
+    import json
+    folder  = os.path.join(os.getcwd(), 'run_settings')
+    settings = os.path.join(folder, 'run_settings_obj3.json')
 
-def
+    args = []
+    seedmax = 29
+    for problem_setting in settings:
+        with open(problem_setting, 'r') as data_file:
+            hyp = json.load(data_file)
+        target_problems = hyp['MO_target_problems']
+        method_selection = hyp['method_selection']
+        max_eval = hyp['max_eval']
+        num_pop = hyp['num_pop']
+        num_gen = hyp['num_gen']
+        for problem in target_problems:
+            for seed in range(seedmax):
+                for method in method_selection:
+                    args.append((seed, problem, max_eval, method))
+    num_workers = 48
+    pool = mp.Pool(processes=num_workers)
+    pool.starmap(normalisation_adjustment, ([arg for arg in args]))
+
+    # normalisation_adjustment(1, "DTLZs.DTLZ1(n_var=6, n_obj=3)", 60, "normalization_with_nd", 4)
+
+
 
 if __name__=="__main__":
-    print(0)
-    import cProfile
-    cProfile.run('run_experiments()')
+    # print(0)
+    # import cProfile
+
+    normalisation_adjustment(1, "DTLZs.DTLZ1(n_var=6, n_obj=3)", 60, "normalization_with_self_0")
+    # cProfile.run('run_experiments()')
 
     # seed, str_problem, max_eval, str_normscheme, corner_search

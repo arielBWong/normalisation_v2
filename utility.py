@@ -147,6 +147,32 @@ def denormalization_with_nd(y_norm, y):
     return y_denorm
 
 
+def normalization_with_self(y):
+    '''
+    normalize a y matrix, with its own max min
+    :param y:
+    :return:  normalized y
+    '''
+    y = check_array(y)
+    min_y = np.min(y, axis=0)
+    max_y = np.max(y, axis=0)
+    return (y - min_y) / (max_y - min_y)
+
+
+def denormalization_with_self(y_norm, y_normorig):
+    '''
+
+    :param y_norm: the list of vectors (num, feature) to be denormalized
+    :param y_normorig: the list of y originally used for normalization
+    :return: denormalized y_norm
+    '''
+    y = check_array(y_normorig)
+    min_y = np.min(y, axis=0)
+    max_y = np.max(y, axis=0)
+    y_denorm = y_norm * (max_y - min_y) + min_y
+    return y_denorm
+
+
 def Silhouette(nd, ndx, nc, **kwargs):
     sil_score = []
     nd_size = nd.shape[0]
